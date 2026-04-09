@@ -49,6 +49,28 @@ def enviar_mensaje(req: MensajeRequest):
             to=numero_destino
         )
         
+        # Imprimir toda la información en terminal
+        print("\n" + "=" * 60)
+        print("INFORMACIÓN COMPLETA DEL MENSAJE (TWILIO)")
+        print("=" * 60)
+        print(f"SID: {message.sid}")
+        print(f"Account SID: {message.account_sid}")
+        print(f"From: {message.from_}")
+        print(f"To: {message.to}")
+        print(f"Body: {message.body}")
+        print(f"Status: {message.status}")
+        print(f"Date Created: {message.date_created}")
+        print(f"Date Sent: {message.date_sent}")
+        print(f"Price: {message.price}")
+        print(f"Price Unit: {message.price_unit}")
+        print(f"Direction: {message.direction}")
+        print(f"Num Segments: {message.num_segments}")
+        print(f"Error Code: {message.error_code}")
+        print(f"Error Message: {message.error_message}")
+        print(f"API Version: {message.api_version}")
+        print(f"URI: {message.uri}")
+        print("=" * 60 + "\n")
+        
         return {
             "status": "success", 
             "message_sid": message.sid,
