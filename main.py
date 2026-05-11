@@ -1,6 +1,11 @@
+import asyncio
+import json
 import os
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from twilio.rest import Client
@@ -28,6 +33,44 @@ client = Client(account_sid, auth_token)
 
 app = FastAPI()
 
+# Bus en memoria para SSE. Cada cliente conectado a /events tiene su propia cola.
+# Si la cola se llena (cliente lento), se descarta para no bloquear la API.
+_subscribers: set[asyncio.Queue] = set()
+
+
+async def _publish(event: dict):
+    dead = []
+    for q in _subscribers:
+        try:
+            q.put_nowait(event)
+        except asyncio.QueueFull:
+            dead.append(q)
+    for q in dead:
+        _subscribers.discard(q)
+
+
+@app.middleware("http")
+async def log_calls(request: Request, call_next):
+    # No logueamos el propio stream para no auto-alimentar a los clientes.
+    if request.url.path == "/events":
+        return await call_next(request)
+    t0 = time.perf_counter()
+    response = await call_next(request)
+    event = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "method": request.method,
+        "path": request.url.path,
+        "status": response.status_code,
+        "duration_ms": round((time.perf_counter() - t0) * 1000),
+        "client": request.client.host if request.client else None,
+    }
+    summary = getattr(request.state, "summary", None)
+    if summary:
+        event["summary"] = summary
+    await _publish(event)
+    return response
+
+
 # 2. Definimos la estructura de datos que esperamos recibir
 class MensajeRequest(BaseModel):
     numero: str
@@ -39,7 +82,7 @@ def health_check():
 
 # 3. Endpoint principal para enviar mensajes de texto libre
 @app.post("/enviar_mensaje")
-def enviar_mensaje(req: MensajeRequest):
+def enviar_mensaje(req: MensajeRequest, request: Request):
     try:
         # Asegurarnos de que el número tenga el formato de WhatsApp de Twilio
         numero_destino = req.numero
@@ -48,6 +91,9 @@ def enviar_mensaje(req: MensajeRequest):
             numero_destino = f"+52{numero_destino}"
         if not numero_destino.startswith("whatsapp:"):
             numero_destino = f"whatsapp:{numero_destino}"
+
+        # Resumen para el stream SSE (sin cuerpo del mensaje ni credenciales)
+        request.state.summary = f"to={numero_destino}"
 
         # Enviamos el mensaje usando Twilio
         message = client.messages.create(
@@ -132,3 +178,36 @@ async def webhook_status(request: Request):
     print("=" * 60 + "\n")
 
     return {}
+
+
+# 6. Stream SSE de todos los requests que recibe la API.
+# El frontend se conecta a /events y recibe en vivo cada llamada (excepto /events).
+@app.get("/events")
+async def events(request: Request):
+    queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    _subscribers.add(queue)
+
+    async def gen():
+        try:
+            # Heartbeat inicial para abrir el stream cuanto antes
+            yield ": ok\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    evt = await asyncio.wait_for(queue.get(), timeout=15)
+                    yield f"data: {json.dumps(evt)}\n\n"
+                except asyncio.TimeoutError:
+                    # Keep-alive cada 15s para que proxies no cierren la conexión
+                    yield ": ping\n\n"
+        finally:
+            _subscribers.discard(queue)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
