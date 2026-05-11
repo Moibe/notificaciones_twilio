@@ -2,3 +2,5 @@ fastapi
 uvicorn
 twilio
 gunicorn
+python-dotenv
+python-multipart
