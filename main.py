@@ -75,6 +75,7 @@ async def log_calls(request: Request, call_next):
 class MensajeRequest(BaseModel):
     numero: str
     mensaje: str
+    dry_run: bool = False  # True = no llama a Twilio, solo emite el evento SSE
 
 @app.get("/health")
 def health_check():
@@ -136,6 +137,20 @@ def enviar_mensaje(req: MensajeRequest, request: Request):
             )
 
         numero_destino = f"whatsapp:{numero_destino}"
+
+        # Modo dry-run: no llamamos a Twilio. Emite el evento SSE igual y devuelve OK.
+        if req.dry_run:
+            request.state.summary = f"DRY-RUN to={numero_destino}"
+            print("\n" + "=" * 60)
+            print("DRY-RUN — Mensaje NO enviado a Twilio")
+            print("=" * 60)
+            print(f"To: {numero_destino}")
+            print(f"Body: {req.mensaje}")
+            print("=" * 60 + "\n")
+            return {
+                "status": "dry-run",
+                "info": f"Dry-run: mensaje NO enviado a {numero_destino}",
+            }
 
         # Resumen para el stream SSE (sin cuerpo del mensaje ni credenciales)
         request.state.summary = f"to={numero_destino}"
