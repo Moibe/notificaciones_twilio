@@ -64,6 +64,18 @@ async def log_calls(request: Request, call_next):
         "duration_ms": round((time.perf_counter() - t0) * 1000),
         "client": request.client.host if request.client else None,
     }
+    # Headers opcionales para identificar al llamador. Solo se agregan si vienen.
+    user_agent = request.headers.get("user-agent")
+    if user_agent:
+        event["user_agent"] = user_agent
+    host_header = request.headers.get("host")
+    if host_header:
+        event["host"] = host_header
+    # X-Origin es nuestra cabecera custom para que clientes propios se identifiquen;
+    # cae a Origin estándar (CORS) si no viene.
+    origin = request.headers.get("x-origin") or request.headers.get("origin")
+    if origin:
+        event["origin"] = origin
     summary = getattr(request.state, "summary", None)
     if summary:
         event["summary"] = summary
