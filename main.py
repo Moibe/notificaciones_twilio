@@ -76,6 +76,9 @@ async def log_calls(request: Request, call_next):
     origin = request.headers.get("x-origin") or request.headers.get("origin")
     if origin:
         event["origin"] = origin
+    original_numero = getattr(request.state, "original_numero", None)
+    if original_numero:
+        event["original_numero"] = original_numero
     summary = getattr(request.state, "summary", None)
     if summary:
         event["summary"] = summary
@@ -99,6 +102,9 @@ def enviar_mensaje(req: MensajeRequest, request: Request):
     try:
         # Normalizar a E.164 con +521 (formato que Twilio requiere para WhatsApp MX)
         numero_destino = req.numero.strip()
+        # Guardamos el input original (post-strip) para que el middleware lo agregue
+        # al evento SSE. El front lo usa para comparar lo enviado vs lo normalizado.
+        request.state.original_numero = numero_destino
 
         # Quitar el prefijo whatsapp: si viene, para trabajar el número limpio
         if numero_destino.startswith("whatsapp:"):
