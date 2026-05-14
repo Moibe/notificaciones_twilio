@@ -84,13 +84,58 @@ def health_check():
 @app.post("/enviar_mensaje")
 def enviar_mensaje(req: MensajeRequest, request: Request):
     try:
-        # Asegurarnos de que el número tenga el formato de WhatsApp de Twilio
-        numero_destino = req.numero
-        # Agregar el código de país si no está presente
-        if not numero_destino.startswith("+"):
-            numero_destino = f"+52{numero_destino}"
-        if not numero_destino.startswith("whatsapp:"):
-            numero_destino = f"whatsapp:{numero_destino}"
+        # Normalizar a E.164 con +521 (formato que Twilio requiere para WhatsApp MX)
+        numero_destino = req.numero.strip()
+
+        # Quitar el prefijo whatsapp: si viene, para trabajar el número limpio
+        if numero_destino.startswith("whatsapp:"):
+            numero_destino = numero_destino[len("whatsapp:"):]
+
+        if numero_destino.startswith("+"):
+            # Si es MX (+52) pero le falta el "1", insertarlo
+            if numero_destino.startswith("+52") and not numero_destino.startswith("+521"):
+                numero_destino = "+521" + numero_destino[3:]
+            # Cualquier otro código de país (+1 US, etc.) se respeta tal cual
+        else:
+            # Sin "+": asumimos MX y normalizamos a +521XXXXXXXXXX
+            if numero_destino.startswith("521"):
+                numero_destino = f"+{numero_destino}"
+            elif numero_destino.startswith("52"):
+                numero_destino = f"+521{numero_destino[2:]}"
+            else:
+                numero_destino = f"+521{numero_destino}"
+
+        # Validar longitud del número normalizado antes de pegarle a Twilio
+        digitos = numero_destino.lstrip("+")
+        if not digitos.isdigit():
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"El número '{req.numero}' contiene caracteres inválidos. "
+                    "Use solo dígitos y opcionalmente el prefijo '+'."
+                ),
+            )
+        if numero_destino.startswith("+521"):
+            # Para México el formato correcto es +521 + 10 dígitos (13 dígitos en total)
+            if len(digitos) != 13:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Número MX inválido: '{req.numero}' tiene "
+                        f"{len(digitos) - 3} dígitos después del código de país, "
+                        "se esperan 10. Formato correcto: +521XXXXXXXXXX."
+                    ),
+                )
+        elif not (8 <= len(digitos) <= 15):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Longitud inválida: '{req.numero}' tiene {len(digitos)} dígitos. "
+                    "E.164 acepta entre 8 y 15 dígitos."
+                ),
+            )
+
+        numero_destino = f"whatsapp:{numero_destino}"
 
         # Resumen para el stream SSE (sin cuerpo del mensaje ni credenciales)
         request.state.summary = f"to={numero_destino}"
@@ -129,6 +174,9 @@ def enviar_mensaje(req: MensajeRequest, request: Request):
             "message_sid": message.sid,
             "info": f"Mensaje enviado a {numero_destino}"
         }
+    except HTTPException:
+        # Nuestros errores 400 (validación) pasan tal cual sin reempaquetar
+        raise
     except Exception as e:
         # Si Twilio marca error (ej. número inválido), regresamos error 500
         raise HTTPException(status_code=500, detail=str(e))
