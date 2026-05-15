@@ -79,6 +79,11 @@ async def log_calls(request: Request, call_next):
     original_numero = getattr(request.state, "original_numero", None)
     if original_numero:
         event["original_numero"] = original_numero
+    # is not None (no `if original_mensaje`) para propagar también mensajes vacíos "",
+    # útiles para detectar callers buggeados que mandan body vacío.
+    original_mensaje = getattr(request.state, "original_mensaje", None)
+    if original_mensaje is not None:
+        event["original_mensaje"] = original_mensaje
     summary = getattr(request.state, "summary", None)
     if summary:
         event["summary"] = summary
@@ -105,6 +110,8 @@ def enviar_mensaje(req: MensajeRequest, request: Request):
         # Guardamos el input original (post-strip) para que el middleware lo agregue
         # al evento SSE. El front lo usa para comparar lo enviado vs lo normalizado.
         request.state.original_numero = numero_destino
+        # Mensaje original sin tocar; el front lo muestra en el detalle de la llamada.
+        request.state.original_mensaje = req.mensaje
 
         # Atajo amable: rechazar placeholders típicos (el "string" que pone Swagger UI
         # por default, "test", "ejemplo", etc.) con un mensaje específico.
