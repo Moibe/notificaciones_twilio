@@ -106,6 +106,19 @@ def enviar_mensaje(req: MensajeRequest, request: Request):
         # al evento SSE. El front lo usa para comparar lo enviado vs lo normalizado.
         request.state.original_numero = numero_destino
 
+        # Atajo amable: rechazar placeholders típicos (el "string" que pone Swagger UI
+        # por default, "test", "ejemplo", etc.) con un mensaje específico.
+        if numero_destino.lower() in {"string", "test", "ejemplo", "example", "phone", "numero"}:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"El número '{req.numero}' parece ser un placeholder de ejemplo, "
+                    "no un número real. Si llegaste aquí desde Swagger UI, reemplaza "
+                    "el valor antes de mandar. Ejemplos válidos: '5534002530', "
+                    "'+5215534002530', '+15551234567'."
+                ),
+            )
+
         # Quitar el prefijo whatsapp: si viene, para trabajar el número limpio
         if numero_destino.startswith("whatsapp:"):
             numero_destino = numero_destino[len("whatsapp:"):]
@@ -130,8 +143,9 @@ def enviar_mensaje(req: MensajeRequest, request: Request):
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"El número '{req.numero}' contiene caracteres inválidos. "
-                    "Use solo dígitos y opcionalmente el prefijo '+'."
+                    f"El número '{req.numero}' no es un número telefónico válido. "
+                    "Use solo dígitos, opcionalmente con prefijo '+' al inicio. "
+                    "Ejemplos válidos: '5534002530', '+5215534002530', '+15551234567'."
                 ),
             )
         if numero_destino.startswith("+521"):
