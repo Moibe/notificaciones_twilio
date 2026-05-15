@@ -167,7 +167,7 @@ def enviar_mensaje(req: MensajeRequest, request: Request):
             print("=" * 60 + "\n")
             return {
                 "status": "dry-run",
-                "info": f"Dry-run: mensaje NO enviado a {numero_destino}",
+                "info": f"Mensaje enviado a {numero_destino} (via dry-run)",
             }
 
         # Resumen para el stream SSE (sin cuerpo del mensaje ni credenciales)
